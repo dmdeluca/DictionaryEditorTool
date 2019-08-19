@@ -95,14 +95,24 @@ namespace TranslationTests
         [Fact]
         public void SaveLoadSanityTest()
         {
-            _dictionaryEditor.SaveDictionary("dict.txt");
-            var loaded = _dictionaryEditor.LoadDictionary("dict.txt");
+            var filename = "dict.txt";
+            _dictionaryEditor.SaveDictionary(filename);
+            var loaded = _dictionaryEditor.LoadDictionary(filename);
 
             Assert.Equal(_dictionary.Count(), loaded.Count());
             foreach(var kv in loaded)
             {
                 Assert.Contains(kv, _dictionary);
             }
+        }
+
+        [Fact]
+        public void LoadMissingDictionaryThrowsException()
+        {
+            var exception = Assert.Throws<Exception>(() => _dictionaryEditor.LoadDictionary("missing.txt"));
+
+            Assert.NotNull(exception);
+            Assert.Equal(Constants.Complaints.DICTIONARY_FILE_NOT_FOUND, exception.Message);
         }
     }
 }
