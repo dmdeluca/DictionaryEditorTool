@@ -1,41 +1,40 @@
-﻿using KeyTranslation;
+﻿using Common;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
-using Utilities;
 
 namespace DictionaryTools
 {
     public class DictionaryEditor : IDictionaryEditor
     {
 
-        private IDictionary<string, string> _dictionary { get; set; }
-        private List<DictionaryEditGroup> _dictionaryHistory;
+        private Dictionary<string, string> _dictionary { get; set; }
+        private IDictionaryEditHistoryManager _historyManager;
 
-        public DictionaryEditor(IDictionary<string, string> dictionary)
+        public DictionaryEditor(Dictionary<string,string> dictionary, IDictionaryEditHistoryManager historyManager)
         {
             _dictionary = dictionary;
-            _dictionaryHistory = new List<DictionaryEditGroup>() { };
+            _historyManager = historyManager;
         }
 
-        public DictionaryEditor()
-        {
-            _dictionary = null;
-            _dictionaryHistory = new List<DictionaryEditGroup>() { };
-        }
-
-        public IDictionary<string, string> LoadDictionary(IDictionary<string, string> dictionary)
+        public Dictionary<string, string> LoadDictionary(Dictionary<string, string> dictionary)
         {
             _dictionary = dictionary;
+            _historyManager.Clear();
+            _historyManager.Watch(dictionary);
             return _dictionary;
         }
 
-        public IDictionary<string, string> GetDictionary()
+        public Dictionary<string, string> GetDictionary()
         {
             return _dictionary;
+        }
+
+        public bool HasUnsavedChanges()
+        {
+            return _historyManager.HasUnsavedChanges();
         }
 
         public void EditValue(string key, string newValue)
@@ -50,7 +49,7 @@ namespace DictionaryTools
             ReplaceValueGloballyInternal(oldValue, newValue);
         }
 
-        public IDictionary<string, string> LoadDictionary(string filepath)
+        public Dictionary<string, string> LoadDictionary(string filepath)
         {
             ValidateLoad(filepath);
             var readDict = new Dictionary<string, string>();
@@ -58,7 +57,7 @@ namespace DictionaryTools
             for (int i = 0; i < allLines.Length; i++)
             {
                 var lineValues = allLines[i].Split('\t');
-                Complain.If(lineValues.Count() != 2, Constants.Complaints.MUST_BE_TWO_VALUES_PER_LINE + allLines[i]);
+                Complain.If(lineValues.Count() != 2, Complaints.MUST_BE_TWO_VALUES_PER_LINE + allLines[i]);
                 readDict.Add(lineValues[0], lineValues[1]);
             }
             _dictionary = readDict;
@@ -69,6 +68,7 @@ namespace DictionaryTools
         {
             ValidateSave();
             File.WriteAllText(filepath, string.Join("\r\n", _dictionary.Select(kv => $"{kv.Key}\t{kv.Value}").ToList()));
+            _historyManager.RegisterSave();
         }
 
         private void ValidateSave()
@@ -78,18 +78,17 @@ namespace DictionaryTools
 
         private static void ValidateLoad(string filepath)
         {
-            Complain.If(!File.Exists(filepath), Constants.Complaints.DICTIONARY_FILE_NOT_FOUND);
+            Complain.If(!File.Exists(filepath), Complaints.DICTIONARY_FILE_NOT_FOUND);
         }
 
         public void Undo()
         {
-            ValidateUndo();
-            _dictionaryHistory.Remove(_dictionaryHistory.Last().Undo());
+            _historyManager.Undo();
         }
 
-        private void ValidateUndo()
+        public void Redo()
         {
-            Complain.If(!_dictionaryHistory.Any(), Constants.Complaints.NOTHING_TO_UNDO, By.ThrowingAnException);
+            _historyManager.Redo();
         }
 
         private void ValidateEdit(string key, string newValue)
@@ -97,7 +96,7 @@ namespace DictionaryTools
             Complain.IfNull(_dictionary);
             Complain.IfNull(key);
             Complain.IfNull(newValue);
-            Complain.If(!_dictionary.ContainsKey(key), Constants.Complaints.KEY_NOT_FOUND);
+            Complain.If(!_dictionary.ContainsKey(key), Complaints.KEY_NOT_FOUND);
         }
 
         private void ReplaceValueGloballyInternal(string oldValue, string newValue)
@@ -105,32 +104,46 @@ namespace DictionaryTools
             var editGroup = new DictionaryEditGroup(_dictionary) { };
             try
             {
-                var keys = _dictionary.Where(kv => kv.Value == oldValue).Select(kv => kv.Key).ToList();
+                List<string> keys = KeysContaining(oldValue);
                 foreach (var key in keys)
                 {
-                    editGroup.Add(key, oldValue);
-                    _dictionary[key] = newValue;
+                    var replaced = _dictionary[key].Replace(oldValue, newValue);
+                    EditSingleValueInternal(key, newValue, editGroup);
                 }
             }
             catch (Exception e)
             {
+                // Undoing any edits so far to avoid the application of a partial global edit.
                 editGroup.Undo();
-                Debug.WriteLine(Constants.Complaints.PROBLEM_WITH_GLOBAL_REPLACEMENT + e.Message);
+                Debug.WriteLine(Complaints.PROBLEM_WITH_GLOBAL_REPLACEMENT + e.Message);
                 return;
             }
-            _dictionaryHistory.Add(editGroup);
+            // If there is an error, this history entry is not added.
+            _historyManager.Add(editGroup);
+        }
+
+        private List<string> KeysContaining(string oldValue)
+        {
+            return _dictionary.Where(kv => kv.Value.Contains(oldValue)).Select(kv => kv.Key).ToList();
         }
 
         private void ValidateGlobalReplacement(string oldValue, string newValue)
         {
+            Complain.IfNull(_dictionary);
             Complain.IfNull(oldValue);
             Complain.IfNull(newValue);
-            Complain.If(oldValue == newValue, Constants.Complaints.CANNOT_REPLACE_WITH_IDENTICAL_VALUE, By.ThrowingAnException);
+            Complain.If(oldValue == newValue, Complaints.CANNOT_REPLACE_WITH_IDENTICAL_VALUE, By.ThrowingAnException);
         }
 
         private void EditSingleValueInternal(string key, string newValue)
         {
-            _dictionaryHistory.Add(new DictionaryEditGroup(_dictionary).Add(key, _dictionary[key]));
+            _historyManager.Add(key, _dictionary[key], newValue);
+            _dictionary[key] = newValue;
+        }
+
+        private void EditSingleValueInternal(string key, string newValue, DictionaryEditGroup dictionaryEditGroup)
+        {
+            dictionaryEditGroup.Add(key, _dictionary[key], newValue);
             _dictionary[key] = newValue;
         }
     }
@@ -146,15 +159,29 @@ namespace DictionaryTools
             Collection = new List<DictionaryEdit>() { };
         }
 
-        public DictionaryEditGroup Add(DictionaryEdit edit)
+        public DictionaryEditGroup(IDictionary<string, string> dictionary, DictionaryEdit dictionaryEdit)
         {
-            Collection.Add(edit);
+            _dictionary = dictionary;
+            Collection = new List<DictionaryEdit>() { };
+            Collection.Add(dictionaryEdit);
+        }
+
+        public DictionaryEditGroup(IDictionary<string, string> dictionary, string key, string previousValue, string newValue)
+        {
+            _dictionary = dictionary;
+            Collection = new List<DictionaryEdit>() { };
+            Collection.Add(new DictionaryEdit(_dictionary, key, previousValue, newValue));
+        }
+
+        public DictionaryEditGroup Add(string key, string previousValue, string newValue)
+        {
+            Collection.Add(new DictionaryEdit(_dictionary, key, previousValue, newValue));
             return this;
         }
 
-        public DictionaryEditGroup Add(string keyAffected, string previousValue)
+        public DictionaryEditGroup Add(DictionaryEdit dictionaryEdit)
         {
-            Collection.Add(new DictionaryEdit(_dictionary, keyAffected, previousValue));
+            Collection.Add(dictionaryEdit);
             return this;
         }
 
@@ -167,6 +194,15 @@ namespace DictionaryTools
             return this;
         }
 
+        public DictionaryEditGroup Redo()
+        {
+            foreach (var edit in Collection)
+            {
+                edit.Apply();
+            }
+            return this;
+        }
+
     }
 
     public class DictionaryEdit
@@ -175,17 +211,25 @@ namespace DictionaryTools
         private IDictionary<string, string> _dictionary;
         private string _keyAffected;
         private string _previousValue;
+        private string _newValue;
 
-        public DictionaryEdit(IDictionary<string, string> dictionary, string keyAffected, string previousValue)
+        public DictionaryEdit(IDictionary<string, string> dictionary, string keyAffected, string previousValue, string newValue)
         {
             _dictionary = dictionary;
             _keyAffected = keyAffected;
             _previousValue = previousValue;
+            _newValue = newValue;
         }
 
         public DictionaryEdit Undo()
         {
             _dictionary[_keyAffected] = _previousValue;
+            return this;
+        }
+
+        public DictionaryEdit Apply()
+        {
+            _dictionary[_keyAffected] = _newValue;
             return this;
         }
     }

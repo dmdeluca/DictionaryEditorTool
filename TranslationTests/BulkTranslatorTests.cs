@@ -1,4 +1,5 @@
-﻿using FriendlyLocals;
+﻿using Autofac;
+using FriendlyLocals;
 using Google.Cloud.Translation.V2;
 using System;
 using System.Collections.Generic;
@@ -20,7 +21,7 @@ namespace TranslationTests
         public BulkTranslatorTests()
         {
             _testOriginalKeyValues = DictionaryTestUtils.GenerateTestDictionary(1000);
-            _bulkKeyTranslator = new BulkKeyTranslator(TranslationModel.NeuralMachineTranslation);
+            _bulkKeyTranslator = new App().Build().ResolveKeyed<IBulkKeyTranslator>(TranslationModel.NeuralMachineTranslation);
         }
 
         [Fact]

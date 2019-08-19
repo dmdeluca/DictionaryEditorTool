@@ -1,4 +1,6 @@
-﻿using DictionaryTools;
+﻿using Autofac;
+using Common;
+using DictionaryTools;
 using KeyTranslation;
 using System;
 using System.Collections.Generic;
@@ -12,12 +14,13 @@ namespace TranslationTests
     public class DictionaryEditorTests
     {
         private IDictionaryEditor _dictionaryEditor;
-        private IDictionary<string, string> _dictionary;
+        private Dictionary<string, string> _dictionary;
 
         public DictionaryEditorTests()
         {
             _dictionary = DictionaryTestUtils.GenerateTestDictionary(1000);
-            _dictionaryEditor = new DictionaryEditor(_dictionary);
+
+            _dictionaryEditor = new App().Build().Resolve<IDictionaryEditor>(new NamedParameter("dictionary", _dictionary));
         }
 
         [Fact]
@@ -37,7 +40,7 @@ namespace TranslationTests
             var key = "nonexistent123";
             var newValue = "new_value";
             var exception = Assert.Throws<Exception>(() => _dictionaryEditor.EditValue(key, newValue));
-            Assert.Equal(Constants.Complaints.KEY_NOT_FOUND, exception.Message);
+            Assert.Equal(Complaints.KEY_NOT_FOUND, exception.Message);
         }
 
         [Fact]
@@ -48,7 +51,7 @@ namespace TranslationTests
             var value = "test_value";
             _dictionary.Add(key, value);
             var exception = Assert.Throws<Exception>(() => _dictionaryEditor.EditValue(key, newValue));
-            Assert.Contains(Constants.Complaints.ARGUMENT_CANNOT_BE_NULL, exception.Message);
+            Assert.Contains(Complaints.ARGUMENT_CANNOT_BE_NULL, exception.Message);
         }
 
         [Fact]
@@ -57,7 +60,7 @@ namespace TranslationTests
             string key = null;
             string newValue = "notnull";
             var exception = Assert.Throws<Exception>(() => _dictionaryEditor.EditValue(key, newValue));
-            Assert.Contains(Constants.Complaints.ARGUMENT_CANNOT_BE_NULL, exception.Message);
+            Assert.Contains(Complaints.ARGUMENT_CANNOT_BE_NULL, exception.Message);
         }
 
         [Fact]
@@ -71,6 +74,21 @@ namespace TranslationTests
             Assert.Equal(newValue, _dictionary[key]);
             _dictionaryEditor.Undo();
             Assert.Equal(value, _dictionary[key]);
+        }
+
+        [Fact]
+        public void UndoRedoSanityTest()
+        {
+            string key = "added_key";
+            string value = "value";
+            _dictionary.Add(key, value);
+            string newValue = "newValue";
+            _dictionaryEditor.EditValue(key, newValue);
+            Assert.Equal(newValue, _dictionary[key]);
+            _dictionaryEditor.Undo();
+            Assert.Equal(value, _dictionary[key]);
+            _dictionaryEditor.Redo();
+            Assert.Equal(newValue, _dictionary[key]);
         }
 
         [Fact]
@@ -112,7 +130,7 @@ namespace TranslationTests
             var exception = Assert.Throws<Exception>(() => _dictionaryEditor.LoadDictionary("missing.txt"));
 
             Assert.NotNull(exception);
-            Assert.Equal(Constants.Complaints.DICTIONARY_FILE_NOT_FOUND, exception.Message);
+            Assert.Equal(Complaints.DICTIONARY_FILE_NOT_FOUND, exception.Message);
         }
     }
 }
