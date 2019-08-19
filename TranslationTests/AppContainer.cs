@@ -22,19 +22,19 @@ namespace TranslationTests
         {
             var builder = new ContainerBuilder();
 
-            var dictionaryParameter = "dictionary";
+            var dictionaryParameterName = "dictionary";
 
             builder.Register(
                 (context, parameters) => 
-                new DictionaryEditHistoryManager(parameters.Named<Dictionary<string, string>>(dictionaryParameter)))
+                new DictionaryEditHistoryManager(parameters.Named<Dictionary<string, string>>(dictionaryParameterName)))
                 .As<IDictionaryEditHistoryManager>()
                 .InstancePerLifetimeScope();
 
             builder.Register(
                 (context, parameters) =>
                 {
-                    var dictionary = parameters.Named<Dictionary<string, string>>(dictionaryParameter);
-                    var historyManager = context.Resolve<IDictionaryEditHistoryManager>(new NamedParameter(dictionaryParameter, dictionary));
+                    var dictionary = parameters.Named<Dictionary<string, string>>(dictionaryParameterName);
+                    var historyManager = context.Resolve<IDictionaryEditHistoryManager>(new NamedParameter(dictionaryParameterName, dictionary));
                     return new DictionaryEditor(dictionary, historyManager);
                 })
                 .As<IDictionaryEditor>()
